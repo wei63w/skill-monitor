@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "hooks": {
+    "beforeReadFile": [
+      {
+        "command": "node .cursor/hooks/skill-monitor-on-read.mjs"
+      }
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+.DS_Store
+Thumbs.db
+*.log
+.idea/
+.vscode/
+*.swp
+*.swo
+node_modules/
+.cursor/
+.claude/
+.codex/
+.agents/
+skills/skill-monitor/data/events.jsonl
+skills/skill-monitor/data/summary.json
+skills/skill-monitor/data/backfill-cursor.json
+skills/skill-monitor/data/report.md
