@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { defaultDataDir, normalizePath, skillNameFromPath } from "./paths.mjs";
+import { estimateTokensFromFile } from "./tokens.mjs";
 
 export function ensureDataDir(dataDir = defaultDataDir()) {
   fs.mkdirSync(dataDir, { recursive: true });
@@ -14,7 +15,14 @@ export function ensureDataDir(dataDir = defaultDataDir()) {
 }
 
 export function emptySummary() {
-  return { skills: {}, updatedAt: new Date().toISOString(), totalEvents: 0 };
+  return {
+    skills: {},
+    updatedAt: new Date().toISOString(),
+    totalEvents: 0,
+    totalEstTokens: 0,
+    tokenNote:
+      "estTokens are rough (CJK≈1, other≈chars/4), not provider billing tokens",
+  };
 }
 
 export function eventsPath(dataDir = defaultDataDir()) {
@@ -61,15 +69,29 @@ export function readSummary(dataDir = defaultDataDir()) {
   }
 }
 
+function resolveEventTokens(ev) {
+  if (typeof ev.estTokens === "number" && ev.estTokens >= 0) {
+    return ev.estTokens;
+  }
+  if (ev.path) {
+    const n = estimateTokensFromFile(ev.path);
+    if (n > 0) return n;
+  }
+  return 0;
+}
+
 export function rebuildSummary(dataDir = defaultDataDir()) {
   const events = readEvents(dataDir);
   const summary = emptySummary();
   summary.totalEvents = events.length;
+  let totalEstTokens = 0;
   for (const ev of events) {
     const name = ev.skill || "unknown";
     if (!summary.skills[name]) {
       summary.skills[name] = {
         count: 0,
+        estTokens: 0,
+        avgEstTokens: 0,
         sessionIds: {},
         lastUsed: null,
         paths: [],
@@ -77,7 +99,10 @@ export function rebuildSummary(dataDir = defaultDataDir()) {
       };
     }
     const s = summary.skills[name];
+    const tok = resolveEventTokens(ev);
     s.count += 1;
+    s.estTokens += tok;
+    totalEstTokens += tok;
     if (ev.sessionId) s.sessionIds[ev.sessionId] = true;
     if (ev.ts && (!s.lastUsed || ev.ts > s.lastUsed)) s.lastUsed = ev.ts;
     const p = normalizePath(ev.path || "");
@@ -88,11 +113,41 @@ export function rebuildSummary(dataDir = defaultDataDir()) {
   for (const name of Object.keys(summary.skills)) {
     const s = summary.skills[name];
     s.uniqueSessions = Object.keys(s.sessionIds).length;
+    s.avgEstTokens =
+      s.count > 0 ? Math.round(s.estTokens / s.count) : 0;
     delete s.sessionIds;
   }
+  summary.totalEstTokens = totalEstTokens;
   summary.updatedAt = new Date().toISOString();
   writeSummary(dataDir, summary);
   return summary;
+}
+
+/**
+ * Rewrite events.jsonl filling missing estTokens from current SKILL.md files.
+ */
+export function reestimateEvents(dataDir = defaultDataDir()) {
+  ensureDataDir(dataDir);
+  const events = readEvents(dataDir);
+  let updated = 0;
+  const lines = events.map((ev) => {
+    const next = { ...ev };
+    const fromFile = next.path ? estimateTokensFromFile(next.path) : 0;
+    if (fromFile > 0 && next.estTokens !== fromFile) {
+      next.estTokens = fromFile;
+      updated += 1;
+    } else if (
+      (next.estTokens == null || next.estTokens === 0) &&
+      fromFile > 0
+    ) {
+      next.estTokens = fromFile;
+      updated += 1;
+    }
+    return JSON.stringify(next);
+  });
+  fs.writeFileSync(eventsPath(dataDir), lines.join("\n") + (lines.length ? "\n" : ""), "utf8");
+  const summary = rebuildSummary(dataDir);
+  return { updated, total: events.length, summary };
 }
 
 /**
@@ -104,6 +159,12 @@ export function recordEvent(partial, dataDir = defaultDataDir(), options = {}) {
   const skill =
     partial.skill ||
     (filePath ? skillNameFromPath(filePath) : "unknown");
+  let estTokens = partial.estTokens;
+  if (estTokens == null || estTokens === "") {
+    estTokens = filePath ? estimateTokensFromFile(filePath) : 0;
+  } else {
+    estTokens = Number(estTokens) || 0;
+  }
   const event = {
     ts: partial.ts || new Date().toISOString(),
     skill,
@@ -112,6 +173,7 @@ export function recordEvent(partial, dataDir = defaultDataDir(), options = {}) {
     sessionId: partial.sessionId || null,
     tool: partial.tool || "cursor",
     dedupeKey: partial.dedupeKey || null,
+    estTokens,
   };
 
   if (options.dedupe && event.dedupeKey) {

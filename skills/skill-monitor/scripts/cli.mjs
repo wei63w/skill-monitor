@@ -22,8 +22,10 @@ import {
   readSummary,
   rebuildSummary,
   recordEvent,
+  reestimateEvents,
   writeBackfillCursor,
 } from "./lib/store.mjs";
+import { fileTokenSize } from "./lib/tokens.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -37,8 +39,9 @@ Commands:
   setup [--project <dir>] [--hooks]     Init data dir; optional merge Cursor hooks
   record --path <SKILL.md> [options]    Record one skill use
   list-skills [--project <dir>]         List discovered local skills
-  analyze [--project <dir>] [--write]   Frequency report (includes 0-count skills)
+  analyze [--project <dir>] [--write]   Frequency + est. token report
   backfill [--project-filter <s>]       Backfill from Cursor agent-transcripts
+  reestimate                            Fill/update estTokens on existing events
   summary                               Print summary.json
 
 Global options:
@@ -50,6 +53,7 @@ Record options:
   --source <src>   hook|backfill|manual (default: manual)
   --session <id>   Session id
   --tool <name>    Tool name (default: cursor)
+  --tokens <n>     Override estimated tokens for this load
 `);
 }
 
@@ -169,6 +173,7 @@ function cmdRecord(args) {
       sessionId: args.session || null,
       tool: args.tool || "cursor",
       dedupeKey: args.dedupe || null,
+      estTokens: args.tokens != null ? Number(args.tokens) : undefined,
     },
     dataDir,
     { dedupe: Boolean(args.dedupe) }
@@ -212,16 +217,22 @@ function cmdAnalyze(args) {
   for (const s of bestByName.values()) {
     const stats = byName[s.name] || {
       count: 0,
+      estTokens: 0,
+      avgEstTokens: 0,
       uniqueSessions: 0,
       lastUsed: null,
       paths: [s.path],
       sources: {},
     };
+    const fileTok = fileTokenSize(s.path);
     rows.push({
       name: s.name,
       scope: s.scope,
       count: stats.count || 0,
       uniqueSessions: stats.uniqueSessions || 0,
+      estTokens: stats.estTokens || 0,
+      avgEstTokens: stats.avgEstTokens || (stats.count ? 0 : fileTok),
+      fileTokens: fileTok,
       lastUsed: stats.lastUsed || "-",
       path: s.path,
     });
@@ -236,10 +247,23 @@ function cmdAnalyze(args) {
       scope: "orphan",
       count: stats.count || 0,
       uniqueSessions: stats.uniqueSessions || 0,
+      estTokens: stats.estTokens || 0,
+      avgEstTokens: stats.avgEstTokens || 0,
+      fileTokens: 0,
       lastUsed: stats.lastUsed || "-",
       path: (stats.paths && stats.paths[0]) || "-",
     });
   }
+
+  rows.sort(
+    (a, b) =>
+      b.estTokens - a.estTokens ||
+      b.count - a.count ||
+      a.name.localeCompare(b.name)
+  );
+  const total = rows.reduce((n, r) => n + r.count, 0);
+  const totalTok =
+    summary.totalEstTokens || rows.reduce((n, r) => n + r.estTokens, 0);
 
   const reportMeta = [
     `# Skill usage frequency`,
@@ -248,28 +272,29 @@ function cmdAnalyze(args) {
     `- Data: \`${dataDir}\``,
     `- Discovered skills (unique names): ${bestByName.size} (${discovered.skills.length} paths)`,
     `- Total recorded events: ${summary.totalEvents}`,
+    `- Estimated skill-load tokens (sum): ${totalTok}`,
     `- Report generated: ${new Date().toISOString()}`,
     "",
-    `| Rank | Skill | Scope | Calls | Sessions | Share | Last used |`,
-    `| --- | --- | --- | ---: | ---: | ---: | --- |`,
+    `| Rank | Skill | Scope | Calls | Est. tokens | Avg/load | File size | Token share | Last used |`,
+    `| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |`,
   ];
-
-  rows.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-  const total = rows.reduce((n, r) => n + r.count, 0);
 
   const lines = [...reportMeta];
 
   rows.forEach((r, i) => {
     const share =
-      total > 0 ? ((r.count / total) * 100).toFixed(1) + "%" : "0%";
+      totalTok > 0 ? ((r.estTokens / totalTok) * 100).toFixed(1) + "%" : "0%";
     lines.push(
-      `| ${i + 1} | ${r.name} | ${r.scope} | ${r.count} | ${r.uniqueSessions} | ${share} | ${r.lastUsed} |`
+      `| ${i + 1} | ${r.name} | ${r.scope} | ${r.count} | ${r.estTokens} | ${r.avgEstTokens} | ${r.fileTokens} | ${share} | ${r.lastUsed} |`
     );
   });
 
   lines.push("");
   lines.push(
-    `_Calls = each recorded load. Sessions = distinct sessionId values (when available)._`
+    `_Calls = each recorded load. Est. tokens ≈ sum of SKILL.md size estimates per load (CJK≈1 token/char, other≈chars/4)._`
+  );
+  lines.push(
+    `_File size = current SKILL.md estimate for one load. Not provider billing / full-chat tokens._`
   );
   lines.push(
     `_Capture is best-effort (hook + backfill + manual). Not every tool exposes skill-use events._`
@@ -283,6 +308,24 @@ function cmdAnalyze(args) {
     fs.writeFileSync(out, report, "utf8");
     console.error(`Wrote ${out}`);
   }
+}
+
+function cmdReestimate(args) {
+  const dataDir = dataDirFromArgs(args);
+  const result = reestimateEvents(dataDir);
+  console.log(
+    JSON.stringify(
+      {
+        ok: true,
+        dataDir,
+        updated: result.updated,
+        total: result.total,
+        totalEstTokens: result.summary.totalEstTokens,
+      },
+      null,
+      2
+    )
+  );
 }
 
 function cmdBackfill(args) {
@@ -374,6 +417,9 @@ async function main() {
       break;
     case "backfill":
       cmdBackfill(args);
+      break;
+    case "reestimate":
+      cmdReestimate(args);
       break;
     case "summary":
       cmdSummary(args);

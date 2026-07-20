@@ -4,7 +4,7 @@
 
 [![skills.sh](https://skills.sh/b/wei63w/skill-monitor)](https://skills.sh/wei63w/skill-monitor)
 
-用于统计本地 Agent Skill 实际使用情况的 Skill：调用次数、从未使用的 skill、项目内频率报告。
+用于统计本地 Agent Skill 实际使用情况的 Skill：调用次数、从未使用的 skill、**SKILL.md 粗估 token**、项目内频率报告。
 
 Agent 会加载很多 skill，团队却很少知道哪些真正有用。没有账本时，「我们有 80 个 skill」只能靠感觉：全留着、凭印象、从不清理。
 
@@ -73,10 +73,13 @@ node ~/.cursor/skills/skill-monitor/scripts/cli.mjs analyze --project . --write
 | `record --path <SKILL.md>` | 记录一次使用 |
 | `backfill` | 幂等扫描 Cursor transcripts |
 | `list-skills` | 列举项目 + 用户 + 内置 skill |
-| `analyze [--write]` | 频率表（含 0 次） |
+| `analyze [--write]` | 频率表 + 估算 token（含 0 次） |
+| `reestimate` | 按当前 SKILL.md 刷新已有事件的 token 估算 |
 | `summary` | 打印 `data/summary.json` |
 
 数据写在 skill 的 `data/` 目录（`events.jsonl`、`summary.json`、可选 `report.md`）。
+
+Token 估算：对每次记录的 `SKILL.md` 用启发式（中日韩字符 ≈ 1 token，其余 ≈ 字符数/4）。用于比较 skill 体积，**不是**厂商账单或整段对话消耗。
 
 ## 怎么工作
 

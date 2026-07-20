@@ -4,7 +4,7 @@
 
 [![skills.sh](https://skills.sh/b/wei63w/skill-monitor)](https://skills.sh/wei63w/skill-monitor)
 
-An Agent Skill for tracking which local skills you actually use — call counts, unused skills, and frequency reports stored in the project.
+An Agent Skill for tracking which local skills you actually use — call counts, unused skills, rough **SKILL.md token estimates**, and frequency reports stored in the project.
 
 Agents load many skills. Few teams know which ones matter. Without a ledger, “we have 80 skills” becomes guesswork: keep everything, trust vibes, never prune.
 
@@ -73,10 +73,13 @@ node ~/.cursor/skills/skill-monitor/scripts/cli.mjs analyze --project . --write
 | `record --path <SKILL.md>` | Record one use |
 | `backfill` | Idempotent scan of Cursor transcripts |
 | `list-skills` | Enumerate project + user + builtin skills |
-| `analyze [--write]` | Frequency table (includes 0-count skills) |
+| `analyze [--write]` | Frequency table + est. tokens (includes 0-count skills) |
+| `reestimate` | Refresh token estimates on existing events |
 | `summary` | Print `data/summary.json` |
 
 Data lives under the skill’s `data/` directory (`events.jsonl`, `summary.json`, optional `report.md`).
+
+Token estimates use a simple heuristic (CJK ≈ 1 token/char, other ≈ chars/4) on each recorded `SKILL.md` load. They are for comparing skill weight — **not** provider billing or full conversation cost.
 
 ## How it works
 
