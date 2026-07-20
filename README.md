@@ -12,6 +12,8 @@ Skill Monitor gives the agent a small, local pipeline: **record → backfill →
 
 Compatible with the [Agent Skills](https://agentskills.io/specification) open standard (Cursor, Claude Code, Codex, and others).
 
+Want more people to find it? See [docs/GROWTH.md](./docs/GROWTH.md) (skills.sh ranks by installs).
+
 ## Preview
 
 Frequency overview — loads, estimated skill tokens, used vs discovered, Task / sub-agent starts:
