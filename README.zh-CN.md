@@ -12,6 +12,20 @@ Skill Monitor 给 Agent 一条本地流水线：**record → backfill → analyz
 
 兼容 [Agent Skills](https://agentskills.io/specification) 开放标准（Cursor、Claude Code、Codex 等）。
 
+## 预览
+
+使用频率总览 — 加载次数、估算 skill token、已用/发现数、Task / 子 Agent 启动：
+
+![Skill 使用频率总览](./docs/preview-overview.png)
+
+按调用次数排序，含估算 token 与占比：
+
+![按调用与 token 成本排序](./docs/preview-ranked-table.png)
+
+流水线深度、高 token 加载、子 Agent 启动、库存健康度：
+
+![流水线 / token / Task / 库存分解图](./docs/preview-breakdown.png)
+
 ## 安装
 
 ```bash

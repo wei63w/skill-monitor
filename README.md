@@ -12,6 +12,20 @@ Skill Monitor gives the agent a small, local pipeline: **record → backfill →
 
 Compatible with the [Agent Skills](https://agentskills.io/specification) open standard (Cursor, Claude Code, Codex, and others).
 
+## Preview
+
+Frequency overview — loads, estimated skill tokens, used vs discovered, Task / sub-agent starts:
+
+![Skill usage frequency overview](./docs/preview-overview.png)
+
+Ranked by calls with estimated token cost and share:
+
+![Ranked skills by calls and token cost](./docs/preview-ranked-table.png)
+
+Pipeline depth, token-heavy loads, sub-agent starts, and inventory health:
+
+![Breakdown charts for pipeline, tokens, tasks, and inventory](./docs/preview-breakdown.png)
+
 ## Install
 
 ```bash
