@@ -12,6 +12,8 @@ Skill Monitor 给 Agent 一条本地流水线：**record → backfill → analyz
 
 兼容 [Agent Skills](https://agentskills.io/specification) 开放标准（Cursor、Claude Code、Codex 等）。
 
+想让更多人发现？见 [docs/GROWTH.md](./docs/GROWTH.md)（skills.sh 按安装量排名）。
+
 ## 预览
 
 使用频率总览 — 加载次数、估算 skill token、已用/发现数、Task / 子 Agent 启动：
