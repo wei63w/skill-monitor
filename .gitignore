@@ -14,3 +14,7 @@ skills/skill-monitor/data/events.jsonl
 skills/skill-monitor/data/summary.json
 skills/skill-monitor/data/backfill-cursor.json
 skills/skill-monitor/data/report.md
+skills/skill-monitor/data/tasks.jsonl
+skills/skill-monitor/data/context-snapshots.jsonl
+skills/skill-monitor/data/bloat-report.md
+skills/skill-monitor/data/tasks-report.md

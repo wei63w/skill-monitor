@@ -2,3 +2,7 @@ data/events.jsonl
 data/summary.json
 data/backfill-cursor.json
 data/report.md
+data/tasks.jsonl
+data/context-snapshots.jsonl
+data/bloat-report.md
+data/tasks-report.md

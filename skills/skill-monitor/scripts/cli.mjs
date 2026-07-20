@@ -4,27 +4,38 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { discoverSkills, listSkillsMarkdown } from "./lib/discover.mjs";
 import {
+  appendContextSnapshot,
+  evaluateBloat,
+  formatBloatReport,
+  measureContextFiles,
+  readContextSnapshots,
+} from "./lib/context-bloat.mjs";
+import {
   listCursorTranscripts,
   parseTranscriptFile,
+  parseTranscriptTasks,
 } from "./lib/parse-transcript.mjs";
 import {
   defaultDataDir,
   normalizePath,
   resolveProjectRoot,
   skillNameFromPath,
-  skillRoot,
   isSkillMdPath,
 } from "./lib/paths.mjs";
 import {
   ensureDataDir,
   readBackfillCursor,
-  readEvents,
   readSummary,
   rebuildSummary,
   recordEvent,
   reestimateEvents,
   writeBackfillCursor,
 } from "./lib/store.mjs";
+import {
+  formatTasksReport,
+  recordTask,
+  summarizeTasks,
+} from "./lib/task-store.mjs";
 import { fileTokenSize } from "./lib/tokens.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -39,8 +50,14 @@ Commands:
   setup [--project <dir>] [--hooks]     Init data dir; optional merge Cursor hooks
   record --path <SKILL.md> [options]    Record one skill use
   list-skills [--project <dir>]         List discovered local skills
-  analyze [--project <dir>] [--write]   Frequency + est. token report
-  backfill [--project-filter <s>]       Backfill from Cursor agent-transcripts
+  analyze [--project <dir>] [--write]   Skill frequency + est. token report
+  bloat [--project <dir>] [--write] [--snapshot]
+                                        Rules / AGENTS.md context bloat report
+  record-task [--type <name>]           Record one Task / sub-agent start
+  analyze-tasks [--project <dir>] [--write]
+                                        Sub-agent startup cost (starts × prompt vol)
+  backfill [--project-filter <s>]       Backfill skills from Cursor transcripts
+  backfill-tasks [--project-filter <s>] Backfill Task/subagent starts from transcripts
   reestimate                            Fill/update estTokens on existing events
   summary                               Print summary.json
 
@@ -54,6 +71,11 @@ Record options:
   --session <id>   Session id
   --tool <name>    Tool name (default: cursor)
   --tokens <n>     Override estimated tokens for this load
+
+record-task options:
+  --type <name>    Subagent type (explore, generalPurpose, …)
+  --project <dir>  Project root for Rules/AGENTS volume
+  --tokens <n>     Override system-prompt volume estimate
 `);
 }
 
@@ -64,6 +86,7 @@ function parseArgs(argv) {
     if (a === "--help" || a === "-h") args.help = true;
     else if (a === "--hooks") args.hooks = true;
     else if (a === "--write") args.write = true;
+    else if (a === "--snapshot") args.snapshot = true;
     else if (a.startsWith("--")) {
       const key = a.slice(2);
       const val = argv[i + 1] && !argv[i + 1].startsWith("--") ? argv[++i] : true;
@@ -107,8 +130,9 @@ function cmdSetup(args) {
 
 function mergeHooks(projectRoot) {
   const fragmentPath = path.join(__dirname, "hooks", "hooks.fragment.json");
-  const hookScript = path.join(__dirname, "hooks", "on-read-skill.mjs");
-  if (!fs.existsSync(fragmentPath) || !fs.existsSync(hookScript)) {
+  const readHook = path.join(__dirname, "hooks", "on-read-skill.mjs");
+  const subHook = path.join(__dirname, "hooks", "on-subagent-start.mjs");
+  if (!fs.existsSync(fragmentPath) || !fs.existsSync(readHook)) {
     return "hook templates missing";
   }
 
@@ -116,10 +140,11 @@ function mergeHooks(projectRoot) {
   const hooksDir = path.join(cursorDir, "hooks");
   fs.mkdirSync(hooksDir, { recursive: true });
 
-  const destHook = path.join(hooksDir, "skill-monitor-on-read.mjs");
-  fs.copyFileSync(hookScript, destHook);
+  const destRead = path.join(hooksDir, "skill-monitor-on-read.mjs");
+  const destSub = path.join(hooksDir, "skill-monitor-on-subagent.mjs");
+  fs.copyFileSync(readHook, destRead);
+  if (fs.existsSync(subHook)) fs.copyFileSync(subHook, destSub);
 
-  // Patch DATA_DIR / CLI path into copied hook via env comment — hook resolves relative to project
   const hooksJsonPath = path.join(cursorDir, "hooks.json");
   let existing = { version: 1, hooks: {} };
   if (fs.existsSync(hooksJsonPath)) {
@@ -133,25 +158,21 @@ function mergeHooks(projectRoot) {
   if (!existing.hooks) existing.hooks = {};
 
   const fragment = JSON.parse(fs.readFileSync(fragmentPath, "utf8"));
-  // Use node so the hook runs on Windows without a Unix shebang executor
-  const command = `node .cursor/hooks/skill-monitor-on-read.mjs`;
   for (const [event, list] of Object.entries(fragment.hooks || {})) {
     if (!existing.hooks[event]) existing.hooks[event] = [];
-    const already = existing.hooks[event].some(
-      (h) => h.command && String(h.command).includes("skill-monitor-on-read")
-    );
-    if (!already) {
-      for (const item of list) {
-        existing.hooks[event].push({
-          ...item,
-          command,
-        });
+    for (const item of list) {
+      const command = item.command;
+      const already = existing.hooks[event].some(
+        (h) => h.command && String(h.command) === command
+      );
+      if (!already) {
+        existing.hooks[event].push({ ...item });
       }
     }
   }
 
   fs.writeFileSync(hooksJsonPath, JSON.stringify(existing, null, 2) + "\n", "utf8");
-  return `merged into ${hooksJsonPath}; script at ${destHook}`;
+  return `merged into ${hooksJsonPath}; scripts: ${destRead}, ${destSub}`;
 }
 
 function cmdRecord(args) {
@@ -386,6 +407,121 @@ function cmdBackfill(args) {
   );
 }
 
+function cmdBloat(args) {
+  const dataDir = dataDirFromArgs(args);
+  const projectRoot = resolveProjectRoot(args.project);
+  ensureDataDir(dataDir);
+  const snapshot = measureContextFiles(projectRoot);
+  const warnings = evaluateBloat(snapshot);
+  const history = readContextSnapshots(dataDir);
+  const previous = history.length ? history[history.length - 1] : null;
+
+  if (args.snapshot) {
+    appendContextSnapshot(dataDir, snapshot);
+  }
+
+  const report = formatBloatReport(snapshot, warnings, previous);
+  console.log(report);
+
+  if (args.write) {
+    const out = path.join(dataDir, "bloat-report.md");
+    fs.writeFileSync(out, report, "utf8");
+    console.error(`Wrote ${out}`);
+  }
+}
+
+function cmdRecordTask(args) {
+  const dataDir = dataDirFromArgs(args);
+  const projectRoot = resolveProjectRoot(args.project);
+  ensureDataDir(dataDir);
+  const { event, skipped } = recordTask(
+    {
+      type: args.type || "unknown",
+      source: args.source || "manual",
+      sessionId: args.session || null,
+      tool: args.tool || "cursor",
+      systemPromptTokens:
+        args.tokens != null ? Number(args.tokens) : undefined,
+      dedupeKey: args.dedupe || null,
+    },
+    dataDir,
+    projectRoot
+  );
+  console.log(JSON.stringify({ ok: true, skipped, event }, null, 2));
+}
+
+function cmdAnalyzeTasks(args) {
+  const dataDir = dataDirFromArgs(args);
+  const projectRoot = resolveProjectRoot(args.project);
+  ensureDataDir(dataDir);
+  const summary = summarizeTasks(dataDir);
+  const report = formatTasksReport(summary, projectRoot);
+  console.log(report);
+  if (args.write) {
+    const out = path.join(dataDir, "tasks-report.md");
+    fs.writeFileSync(out, report, "utf8");
+    console.error(`Wrote ${out}`);
+  }
+}
+
+function cmdBackfillTasks(args) {
+  const dataDir = dataDirFromArgs(args);
+  const projectRoot = resolveProjectRoot(args.project);
+  ensureDataDir(dataDir);
+  const cursor = readBackfillCursor(dataDir);
+  if (!cursor.tasksProcessed) cursor.tasksProcessed = {};
+
+  const files = listCursorTranscripts({
+    projectFilter: args["project-filter"] || args.projectFilter || null,
+  });
+
+  let scanned = 0;
+  let recorded = 0;
+  let skipped = 0;
+
+  for (const file of files) {
+    scanned += 1;
+    const fileKey = "tasks:" + normalizePath(file);
+    let st;
+    try {
+      st = fs.statSync(file);
+    } catch {
+      continue;
+    }
+    const stamp = `${st.mtimeMs}:${st.size}`;
+    if (cursor.tasksProcessed[fileKey] === stamp) {
+      skipped += 1;
+      continue;
+    }
+
+    const events = parseTranscriptTasks(file);
+    for (const ev of events) {
+      const result = recordTask(ev, dataDir, projectRoot);
+      if (result.skipped) skipped += 1;
+      else recorded += 1;
+    }
+    cursor.tasksProcessed[fileKey] = stamp;
+  }
+
+  cursor.updatedAt = new Date().toISOString();
+  writeBackfillCursor(dataDir, cursor);
+
+  console.log(
+    JSON.stringify(
+      {
+        ok: true,
+        transcriptFiles: files.length,
+        scanned,
+        recorded,
+        skippedFilesOrDupes: skipped,
+        dataDir,
+      },
+      null,
+      2
+    )
+  );
+}
+
 function isValidOrphanName(name) {
   if (!name || name === "..." || name.includes("...")) return false;
   if (["templates", "scripts", "data", "skills", "hooks", "lib"].includes(name)) {
@@ -415,8 +551,20 @@ async function main() {
     case "analyze":
       cmdAnalyze(args);
       break;
+    case "bloat":
+      cmdBloat(args);
+      break;
+    case "record-task":
+      cmdRecordTask(args);
+      break;
+    case "analyze-tasks":
+      cmdAnalyzeTasks(args);
+      break;
     case "backfill":
       cmdBackfill(args);
+      break;
+    case "backfill-tasks":
+      cmdBackfillTasks(args);
       break;
     case "reestimate":
       cmdReestimate(args);

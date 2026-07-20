@@ -5,6 +5,17 @@
       {
         "command": "node .cursor/hooks/skill-monitor-on-read.mjs"
       }
+    ],
+    "subagentStart": [
+      {
+        "command": "node .cursor/hooks/skill-monitor-on-subagent.mjs"
+      }
+    ],
+    "preToolUse": [
+      {
+        "command": "node .cursor/hooks/skill-monitor-on-subagent.mjs",
+        "matcher": "Task"
+      }
     ]
   }
 }

@@ -4,7 +4,7 @@
 
 [![skills.sh](https://skills.sh/b/wei63w/skill-monitor)](https://skills.sh/wei63w/skill-monitor)
 
-An Agent Skill for tracking which local skills you actually use — call counts, unused skills, rough **SKILL.md token estimates**, and frequency reports stored in the project.
+An Agent Skill for tracking which local skills you actually use — call counts, unused skills, rough **SKILL.md token estimates**, **Rules / AGENTS.md context bloat**, **Task / sub-agent startup cost**, and frequency reports stored in the project.
 
 Agents load many skills. Few teams know which ones matter. Without a ledger, “we have 80 skills” becomes guesswork: keep everything, trust vibes, never prune.
 
@@ -69,7 +69,7 @@ It’s a shortcut to a usage report you can act on — prune, promote, or docume
 
 ### Adjacent ideas (same ledger pattern)
 
-The local event log can grow into MCP/tool call ledgers, Rules / `AGENTS.md` bloat monitors, or sub-agent startup cost tracking.
+Beyond skills, this package already includes **Rules / AGENTS.md bloat** (`bloat`) and **Task / sub-agent startup cost** (`analyze-tasks`). The same local event log can grow into MCP/tool call ledgers.
 
 ### What it’s *not*
 
@@ -98,22 +98,33 @@ From a project that has the skill installed (or after copying it under `.cursor/
 ```bash
 node ~/.cursor/skills/skill-monitor/scripts/cli.mjs setup --project . --hooks
 node ~/.cursor/skills/skill-monitor/scripts/cli.mjs backfill
+node ~/.cursor/skills/skill-monitor/scripts/cli.mjs backfill-tasks
 node ~/.cursor/skills/skill-monitor/scripts/cli.mjs analyze --project . --write
+node ~/.cursor/skills/skill-monitor/scripts/cli.mjs bloat --project . --snapshot --write
+node ~/.cursor/skills/skill-monitor/scripts/cli.mjs analyze-tasks --project . --write
 ```
 
 | Command | Purpose |
 |---------|---------|
-| `setup [--hooks]` | Init `data/`; optionally merge Cursor hook |
-| `record --path <SKILL.md>` | Record one use |
-| `backfill` | Idempotent scan of Cursor transcripts |
+| `setup [--hooks]` | Init `data/`; merge skill-read + subagent hooks |
+| `record --path <SKILL.md>` | Record one skill use |
+| `backfill` | Idempotent scan of Cursor transcripts (skills) |
+| `backfill-tasks` | Idempotent scan for Task / subagent starts |
 | `list-skills` | Enumerate project + user + builtin skills |
-| `analyze [--write]` | Frequency table + est. tokens (includes 0-count skills) |
-| `reestimate` | Refresh token estimates on existing events |
+| `analyze [--write]` | Skill frequency + est. tokens |
+| `bloat [--snapshot] [--write]` | Rules / AGENTS.md sizes, budgets, optional history |
+| `record-task --type <name>` | Record one sub-agent start |
+| `analyze-tasks [--write]` | Startup cost proxy: starts × avg system-prompt volume |
+| `reestimate` | Refresh skill token estimates on existing events |
 | `summary` | Print `data/summary.json` |
 
-Data lives under the skill’s `data/` directory (`events.jsonl`, `summary.json`, optional `report.md`).
+Data lives under the skill’s `data/` directory (`events.jsonl`, `tasks.jsonl`, `context-snapshots.jsonl`, reports).
 
-Token estimates use a simple heuristic (CJK ≈ 1 token/char, other ≈ chars/4) on each recorded `SKILL.md` load. They are for comparing skill weight — **not** provider billing or full conversation cost.
+**Skill tokens** use a simple heuristic (CJK ≈ 1 token/char, other ≈ chars/4) on each recorded `SKILL.md` load.
+
+**Context bloat** measures always-on files (`AGENTS.md`, `.cursor/rules/**`, `CLAUDE.md`, …) with soft budgets (per-file / total / agents / rules).
+
+**Sub-agent cost** ≈ Task/subagent start count × average Rules+AGENTS volume at start — for comparing orchestration tax, **not** provider billing.
 
 ## How it works
 
@@ -128,7 +139,8 @@ Token estimates use a simple heuristic (CJK ≈ 1 token/char, other ≈ chars/4)
 > Set up skill-monitor in this project with hooks
 > skill-monitor 回填历史并做频率分析
 > Which skills are never used?
-> skill 使用统计 / skill 频率分析
+> Check AGENTS.md / rules bloat with skill-monitor
+> skill-monitor 看子 Agent / Task 启动成本
 > Analyze local skill usage with skill-monitor
 ```
 

@@ -1,11 +1,10 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import crypto from "node:crypto";
 import {
   cursorProjectsDir,
   isSkillMdPath,
   normalizePath,
-  skillNameFromPath,
 } from "./paths.mjs";
 
 const VALID_SKILL_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/i;
@@ -21,10 +20,8 @@ export function extractSkillsFromText(text, transcriptPath) {
   const found = new Map();
   if (!text) return [];
 
-  // Normalize slashes for matching
   const normalized = text.replace(/\\/g, "/");
 
-  // Full Windows or Unix paths containing known skill roots
   const pathRe =
     /(?:[A-Za-z]:)?\/(?:[^/\s"'<>|]+\/)*(?:\.cursor\/skills(?:-cursor)?|\.agents\/skills|\.claude\/skills|\.codex\/skills|skills-cursor)\/([A-Za-z0-9][A-Za-z0-9._-]{0,63})\/SKILL\.md/gi;
 
@@ -36,14 +33,48 @@ export function extractSkillsFromText(text, transcriptPath) {
     addFound(found, skill, normalizePath(full), transcriptPath);
   }
 
-  // Relative mentions: .cursor/skills/foo/SKILL.md
   const relRe =
     /(?:\.cursor\/skills(?:-cursor)?|\.agents\/skills|\.claude\/skills|\.codex\/skills)\/([A-Za-z0-9][A-Za-z0-9._-]{0,63})\/SKILL\.md/gi;
   while ((m = relRe.exec(normalized)) !== null) {
     const skill = m[1];
     if (!isValidSkillName(skill)) continue;
-    const full = m[0];
-    addFound(found, skill, full, transcriptPath);
+    addFound(found, skill, m[0], transcriptPath);
+  }
+
+  return [...found.values()];
+}
+
+/**
+ * Extract Task / subagent starts from transcript text.
+ */
+export function extractTasksFromText(text, transcriptPath) {
+  if (!text) return [];
+  const found = new Map();
+  const typeRe =
+    /"subagent_type"\s*:\s*"([A-Za-z0-9_-]+)"|"subagentType"\s*:\s*"([A-Za-z0-9_-]+)"/gi;
+  let m;
+  let idx = 0;
+  while ((m = typeRe.exec(text)) !== null) {
+    const typ = m[1] || m[2];
+    idx += 1;
+    const key = hashKey(transcriptPath, typ, String(idx), String(m.index));
+    if (!found.has(key)) {
+      found.set(key, { type: typ, dedupeKey: key });
+    }
+  }
+
+  const taskToolRe =
+    /"tool(?:Name)?"\s*:\s*"Task"|toolName['"]?\s*[:=]\s*['"]Task['"]/gi;
+  while ((m = taskToolRe.exec(text)) !== null) {
+    const window = text.slice(m.index, m.index + 400);
+    const tm = window.match(
+      /subagent_type["']?\s*[:=]\s*["']([A-Za-z0-9_-]+)/i
+    );
+    const typ = tm ? tm[1] : "Task";
+    const key = hashKey(transcriptPath, typ, "tool", String(m.index));
+    if (!found.has(key)) {
+      found.set(key, { type: typ, dedupeKey: key });
+    }
   }
 
   return [...found.values()];
@@ -52,8 +83,9 @@ export function extractSkillsFromText(text, transcriptPath) {
 function isValidSkillName(name) {
   if (!name || !VALID_SKILL_NAME.test(name)) return false;
   if (name === "..." || name.includes("...")) return false;
-  if (name === "templates" || name === "scripts" || name === "data") return false;
-  if (name === "skills" || name === "hooks" || name === "lib") return false;
+  if (["templates", "scripts", "data", "skills", "hooks", "lib"].includes(name)) {
+    return false;
+  }
   return true;
 }
 
@@ -75,9 +107,6 @@ function hashKey(...parts) {
     .slice(0, 16);
 }
 
-/**
- * List transcript jsonl files under ~/.cursor/projects
- */
 export function listCursorTranscripts(options = {}) {
   const root = cursorProjectsDir();
   const filter = options.projectFilter
@@ -137,6 +166,25 @@ export function parseTranscriptFile(transcriptPath) {
     sessionId: path.basename(transcriptPath, ".jsonl"),
     tool: "cursor",
     dedupeKey: s.dedupeKey,
+  }));
+}
+
+export function parseTranscriptTasks(transcriptPath) {
+  let text;
+  try {
+    text = fs.readFileSync(transcriptPath, "utf8");
+  } catch {
+    return [];
+  }
+  const tasks = extractTasksFromText(text, transcriptPath);
+  const mtime = fs.statSync(transcriptPath).mtime.toISOString();
+  return tasks.map((t) => ({
+    ts: mtime,
+    type: t.type,
+    source: "backfill",
+    sessionId: path.basename(transcriptPath, ".jsonl"),
+    tool: "cursor",
+    dedupeKey: t.dedupeKey,
   }));
 }
 
