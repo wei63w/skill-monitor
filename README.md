@@ -35,11 +35,45 @@ Requires **Node.js 18+** on `PATH` for the bundled CLI.
 
 ## Why use it?
 
-Skill libraries grow quietly.
+Skill libraries grow quietly. This skill measures **skill tax** — how often skills load, and roughly how heavy each load is.
 
 Without usage data, high-value skills and dead weight look the same. Late-install into an existing project, optionally backfill from Cursor transcripts, then enable a Cursor hook so new `SKILL.md` reads are counted.
 
 It’s a shortcut to a usage report you can act on — prune, promote, or document — not another unread folder of skills.
+
+## Value & selling points
+
+### For individuals and teams
+
+- **Prune with evidence** — 0-call or high-size / low-call skills are candidates to delete, merge, or split for progressive disclosure.
+- **Install budgets** — Cap default skill packs by estimated load tokens so new projects don’t start already overweight.
+- **Quality signal** — High usage but still failing tasks points at rewriting the skill, not adding another one.
+
+### For skill authors and maintainers
+
+- **Size KPI** — Treat `File size` / avg tokens per load as an inflation alarm for bloated `SKILL.md` docs.
+- **Adoption funnel** — Contrast installs vs real load counts (retention for open-source skills).
+- **Before / after** — Compare avg load cost and call volume across skill versions.
+
+### For engineering and platforms
+
+- **Context cost attribution** — Coarse bucket: how much of “expensive chats” may come from skill bodies vs code vs tool output.
+- **Routing policy** — Keep expensive skills on explicit match; leave cheap descriptions ambient.
+- **CI budget gate** — Fail PRs that grow `SKILL.md` estimated tokens past a threshold (like a bundle-size budget).
+- **Multi-agent compare** — Same repo, different tools: who loads the heavy skills more?
+
+### For product and governance
+
+- **Internal skill catalog narrative** — Use calls × est. tokens as a management language for Agent cost (not a invoice).
+- **Audit trail** — Which sensitive-domain skills (security, finance, …) were read, and when.
+
+### Adjacent ideas (same ledger pattern)
+
+The local event log can grow into MCP/tool call ledgers, Rules / `AGENTS.md` bloat monitors, or sub-agent startup cost tracking.
+
+### What it’s *not*
+
+Strong for **relative comparison and governance**. Weak as a **billing meter**. The win is courage to delete skills, set budgets, and block ever-growing manuals in CI — not another vanity leaderboard.
 
 ## Limits (read this)
 
